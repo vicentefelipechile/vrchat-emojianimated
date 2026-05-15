@@ -8,14 +8,16 @@ on:
 permissions:
   contents: write   # needed to create the GitHub Release
 
-# ─────────────────────────────────────────────────────────────────────────────
+# ==============================================================================
 # Both build jobs run in parallel, upload their binary as an Actions artifact,
 # then the publish job waits for both, downloads them, and creates the release.
 # This avoids the race condition of two jobs writing to the same release at once.
-# ─────────────────────────────────────────────────────────────────────────────
+# ==============================================================================
 
 jobs:
-  # ───────────────────────────────────────────────────────── Windows x64 ─────
+  # ============================================================================
+  # Windows x64
+  # ============================================================================
   build-windows:
     name: Build · Windows x64
     runs-on: windows-latest
@@ -66,7 +68,9 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
-  # ─────────────────────────────────────────────────────────── Ubuntu x64 ─────
+  # ============================================================================
+  # Ubuntu x64
+  # ============================================================================
   build-linux:
     name: Build · Ubuntu x64
     runs-on: ubuntu-22.04
@@ -130,7 +134,9 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
-  # ───────────────────────────────────────────── Publish GitHub Release ──────
+  # ============================================================================
+  # Publish GitHub Release
+  # ============================================================================
   publish-release:
     name: Publish GitHub Release
     needs: [build-windows, build-linux]
