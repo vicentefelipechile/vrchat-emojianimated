@@ -116,9 +116,9 @@ export class OptionsView implements View {
           <hr class="divider" />
 
           <div class="field">
-            <label class="field-label">Adversarial Noise (Watermarking)</label>
+            <label class="field-label">Watermark</label>
             <p class="text-secondary" style="font-size:12px; margin-bottom:12px;">
-              Combine different noise types to evade security checks. 0 = off, 100 = strong.
+              Combine different watermark patterns to protect your image. 0 = off, 100 = strong.
             </p>
 
             <div style="margin-bottom:12px; display:flex; align-items:center; gap:8px;">
@@ -147,7 +147,7 @@ export class OptionsView implements View {
                   <span class="field-value" id="val-fgsm" style="width:24px;text-align:right;">${state.noiseFgsm}</span>
                 </div>
                 <span style="font-size:11px; color:var(--text-secondary); padding-left:78px;">
-                  Subtle spatial noise on edges. Useful against basic filters.
+                  Subtle spatial watermark on edges.
                 </span>
               </div>
               
@@ -166,7 +166,7 @@ export class OptionsView implements View {
                   <span class="field-value" id="val-highfreq" style="width:24px;text-align:right;">${state.noiseHighFreq}</span>
                 </div>
                 <span style="font-size:11px; color:var(--text-secondary); padding-left:78px;">
-                  Checkerboard pattern. Resists VRChat compression better.
+                  Checkerboard pattern. Resists compression better.
                 </span>
               </div>
               
@@ -185,7 +185,7 @@ export class OptionsView implements View {
                   <span class="field-value" id="val-sparse" style="width:24px;text-align:right;">${state.noiseSparse}</span>
                 </div>
                 <span style="font-size:11px; color:var(--text-secondary); padding-left:78px;">
-                  Drastically alters random pixels (like "dead pixels").
+                  Adds random pixel variations to the image.
                 </span>
               </div>
               
