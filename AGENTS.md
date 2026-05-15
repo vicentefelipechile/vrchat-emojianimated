@@ -6,7 +6,7 @@
 
 ## 1. Project Identity
 
-**vrchat-emojianimate** is a **portable, no-install desktop tool** that converts GIF/video files into **1024×1024 VRChat-compatible sprite sheets** (PNG, 8×8 grid, up to 64 frames, 128×128 px per cell).
+**vrchat-emojianimate** is a **portable, no-install desktop tool** that converts GIF/video files into **1024×1024 VRChat-compatible sprite sheets** (PNG). It supports two resolutions: **128×128 px** (8×8 grid, up to 64 frames) and **256×256 px** (4×4 grid, up to 16 frames).
 
 - **Target audience:** VRChat avatar/world creators.
 - **Output:** `<Name>_<N>frames_<FPS>fps.png` — a single flat PNG, no metadata embedded.
@@ -52,7 +52,7 @@ vrchat-emojianimate/
 │   │   ├── AnalysisView.ts       # Step 1 — ffprobe results display
 │   │   ├── ReductionView.ts      # Step 2 — frame reduction (only if total_frames > 64)
 │   │   ├── FitView.ts            # Step 3 — fit mode + focus anchor
-│   │   ├── OptionsView.ts        # Step 4 — frame count, FPS, output name
+│   │   ├── OptionsView.ts        # Step 4 — frame count, FPS, output name, watermark controls
 │   │   └── ExportView.ts         # Step 5 — extract → assemble → save
 │   └── ui/
 │       ├── html.ts               # Tagged template literal `html\`…\`` → HTMLElement
@@ -66,7 +66,7 @@ vrchat-emojianimate/
 │   │   │   ├── mod.rs            # Re-exports all command modules
 │   │   │   ├── analyze.rs        # analyze_media → ffprobe
 │   │   │   ├── extract.rs        # extract_frames, extract_preview, cleanup_temp → ffmpeg
-│   │   │   ├── assemble.rs       # assemble_sheet → image crate
+│   │   │   ├── assemble.rs       # assemble_sheet → image crate + watermark pipeline
 │   │   │   ├── download.rs       # download_dependencies → reqwest
 │   │   │   └── dialogs.rs        # open_file_dialog, save_file_dialog → tauri-plugin-dialog
 │   ├── capabilities/
@@ -82,6 +82,7 @@ vrchat-emojianimate/
 ├── vite.config.ts                # Port 1420, ignores src-tauri/
 ├── tsconfig.json
 ├── package.json
+├── AGENTS.md                     # AI agent reference guide (this file)
 └── BLUEPRINT.md                  # Full design spec (source of truth for decisions)
 ```
 
@@ -195,7 +196,7 @@ extractFrames(options: ExtractOptions): Promise<ExtractResult>
 
 interface ExtractOptions {
   input_path:      string;
-  frame_count:     number;         // 1–MAX_FRAMES
+  frame_count:     number;         // 1–getMaxFrames(res)
   target_fps:      number;
   fit_mode:        FitMode;        // enum: 'stretch' | 'crop' | 'focus'
   anchor_x?:       number;         // PRE-CLAMPED crop X offset in source pixels (focus mode)
@@ -204,6 +205,8 @@ interface ExtractOptions {
   frame_height?:   number;         // source height
   reduction_mode?: ReductionMode;  // enum: 'trim_start' | 'trim_end' | 'interpolate'
   duration_secs?:  number;         // required for interpolate fps calculation
+  remove_duplicates?: boolean;     // Whether to remove duplicate frames before other filters
+  cell_size:       number;         // Sprite cell resolution (128 or 256)
 }
 
 interface ExtractResult {
@@ -216,7 +219,7 @@ interface ExtractResult {
 ```typescript
 cropX = Math.max(0, Math.min(anchorX - CELL_SIZE / 2, frameW - CELL_SIZE));
 cropY = Math.max(0, Math.min(anchorY - CELL_SIZE / 2, frameH - CELL_SIZE));
-// where CELL_SIZE = 128
+// where CELL_SIZE is 128 or 256 depending on state.resolution
 ```
 
 ### `assemble_sheet`
@@ -226,9 +229,14 @@ assembleSheet(options: AssembleOptions): Promise<AssembleResult>
 // invoke<AssembleResult>('assemble_sheet', { options })
 
 interface AssembleOptions {
-  temp_dir:     string;
-  frame_count:  number;  // use actual_count from ExtractResult
-  output_path:  string;  // full OS path from save dialog
+  temp_dir:        string;
+  frame_count:     number;  // use actual_count from ExtractResult
+  output_path:     string;  // full OS path from save dialog
+  cell_size:       number;  // Sprite cell resolution (128 or 256)
+  noise_fgsm:      number;  // FGSM spatial watermark (0-100)
+  noise_high_freq: number;  // High freq checkerboard watermark (0-100)
+  noise_sparse:    number;  // Sparse pixel variation watermark (0-100)
+  noise_luma:      number;  // Medium frequency luma wave watermark (0-100)
 }
 
 interface AssembleResult {
@@ -268,16 +276,17 @@ Singleton in `src/state.ts`. Views read from and write to it directly — no rea
 ### Enums (always import from `state.ts`, never use raw strings)
 
 ```typescript
-enum MediaFormat  { GIF = 'gif', VIDEO = 'video' }
+enum MediaFormat   { GIF = 'gif', VIDEO = 'video' }
+enum Resolution    { RES_128 = 128, RES_256 = 256 }
 enum ReductionMode { TRIM_START = 'trim_start', TRIM_END = 'trim_end', INTERPOLATE = 'interpolate' }
-enum FitMode      { STRETCH = 'stretch', CROP = 'crop', FOCUS = 'focus' }
+enum FitMode       { STRETCH = 'stretch', CROP = 'crop', FOCUS = 'focus' }
 ```
 
 ### Constants
 
 ```typescript
-const MAX_FRAMES         = 64;   // Maximum frames per sprite sheet
-const DEFAULT_FRAME_COUNT = 16;  // Fallback when source is unknown or > MAX_FRAMES
+export function getMaxFrames(res?: Resolution): number // 64 for 128px, 16 for 256px
+const DEFAULT_FRAME_COUNT = 16;  // Fallback when source is unknown or > max frames
 const DEFAULT_FPS        = 24;
 const DEFAULT_FIT_MODE   = FitMode.CROP;
 ```
@@ -288,15 +297,21 @@ const DEFAULT_FIT_MODE   = FitMode.CROP;
 interface AppState {
   inputPath:     string | null;          // Full OS path to input file
   mediaInfo:     MediaInfo | null;       // Set after analyze_media
-  reductionMode: ReductionMode | null;   // null when total_frames ≤ MAX_FRAMES
+  reductionMode: ReductionMode | null;   // null when total_frames ≤ max frames
   fitMode:       FitMode;               // default: FitMode.CROP
   anchorX:       number | null;          // Source-space pixel, for focus mode
   anchorY:       number | null;
-  frameCount:    number;                 // 1–MAX_FRAMES, default: DEFAULT_FRAME_COUNT
+  resolution:    Resolution;             // Sprite cell resolution (128 or 256)
+  frameCount:    number;                 // 1–getMaxFrames(), default: DEFAULT_FRAME_COUNT
   fps:           number;                 // default: DEFAULT_FPS
   outputName:    string;                 // Stem of output filename (no extension)
   tempDir:       string | null;          // Set after extract_frames, cleared after cleanup
   previewBase64: string | null;          // Cached first-frame PNG for FitView
+  removeDuplicateFrames: boolean;        // Whether to drop duplicate frames
+  noiseFgsm:     number;                 // FGSM spatial watermark (0-100)
+  noiseHighFreq: number;                 // High freq checkerboard watermark (0-100)
+  noiseSparse:   number;                 // Sparse pixel variation watermark (0-100)
+  noiseLuma:     number;                 // Medium frequency luma wave watermark (0-100)
 }
 ```
 
@@ -315,8 +330,8 @@ interface AppState {
 ```
 DropView (step 0)
   → AnalysisView (step 1)
-      ├── [total_frames > 64] → ReductionView (step 2) → FitView (step 3)
-      └── [total_frames ≤ 64] → FitView (step 3)
+      ├── [total_frames > max frames] → ReductionView (step 2) → FitView (step 3)
+      └── [total_frames ≤ max frames] → FitView (step 3)
   → OptionsView (step 4)
   → ExportView (step 5)
 ```
@@ -374,9 +389,11 @@ Plugins: `tauri_plugin_opener`, `tauri_plugin_shell`, `tauri_plugin_dialog`.
 
 | Fit mode | `-vf` filter |
 |---|---|
-| `stretch` | `scale=128:128` |
-| `crop` | `scale='if(gt(a,1),128,-1)':'if(gt(a,1),-1,128)',crop=128:128` |
-| `focus` | `crop=128:128:<cx>:<cy>` (with optional upscale if source < 128px) |
+| `stretch` | `scale=CELL:CELL` |
+| `crop` | `scale='if(gt(a,1),CELL,-1)':'if(gt(a,1),-1,CELL)',crop=CELL:CELL` |
+| `focus` | `crop=CELL:CELL:<cx>:<cy>` (with optional upscale if source < CELL px) |
+
+*`CELL` depends on the selected resolution (128 or 256).*
 
 **Reduction modes (prepended or combined):**
 
@@ -392,9 +409,10 @@ Plugins: `tauri_plugin_opener`, `tauri_plugin_shell`, `tauri_plugin_dialog`.
 
 - Canvas: 1024×1024 RGBA, initialized transparent.
 - Iterates frames 1..=frame_count, reads `frame_{i:04}.png`.
-- `col = i % 8`, `row = i / 8`, placed at `(col*128, row*128)`.
+- `col = i % grid_cols`, `row = i / grid_cols`, placed at `(col*cell_size, row*cell_size)`.
+  - grid_cols is `8` for 128px resolution, and `4` for 256px resolution.
 - If a frame file is missing, stops early (transparent cell).
-- If frame dims ≠ 128×128, resizes with Lanczos3.
+- If frame dims ≠ cell_size×cell_size, resizes with Lanczos3.
 - Encodes to PNG in memory → base64 → `preview_base64` field.
 - Saves to `output_path`.
 
@@ -494,7 +512,7 @@ Asset protocol is enabled in `tauri.conf.json` with scope `$TEMP/**`, `$APPDATA/
 Examples: `EmojiAnimated_16frames_24fps.png`, `FireLoop_64frames_30fps.png`
 
 - `<Name>`: user-editable; default = stem of input filename.
-- `<N>`: `state.frameCount` (1–64).
+- `<N>`: `state.frameCount` (1–64, depending on resolution).
 - `<FPS>`: `state.fps` (1–120), integer.
 - FPS is **only in the filename** — not embedded in the PNG.
 
@@ -523,7 +541,7 @@ invoke('analyze_media', { path })
 
 1. `FitView` calls `extractPreview(inputPath)` on demand (only when focus mode is selected).
 2. Result stored in `state.previewBase64` — not re-fetched if already cached.
-3. `ExportView` plays back the sprite sheet using a `<canvas>` driven by `requestAnimationFrame` reading from `assembleResult.preview_base64` (the full 1024×1024 sheet, animated by slicing 128×128 cells).
+3. `ExportView` plays back the sprite sheet using a `<canvas>` driven by `requestAnimationFrame` reading from `assembleResult.preview_base64` (the full 1024×1024 sheet, animated by slicing the correct cell size).
 
 ### Temp Directory Lifecycle
 
@@ -554,19 +572,81 @@ A debounce guard (`lastDropPath`) prevents duplicate `drop` events from firing t
 
 ```
 1024×1024 px RGBA PNG
-8 columns × 8 rows = 64 cells
-Each cell: 128×128 px
+Grid layout depends on selected resolution:
+
+**128×128 px resolution (64 frames):**
+8 columns × 8 rows
 Frame layout (0-indexed, row-major):
   [ 0][ 1][ 2][ 3][ 4][ 5][ 6][ 7]
   [ 8][ 9][10][11][12][13][14][15]
   …
   [56][57][58][59][60][61][62][63]
+
+**256×256 px resolution (16 frames):**
+4 columns × 4 rows
+Frame layout:
+  [ 0][ 1][ 2][ 3]
+  [ 4][ 5][ 6][ 7]
+  [ 8][ 9][10][11]
+  [12][13][14][15]
+
 Unused cells: transparent (alpha = 0)
 ```
 
 ---
 
-## 16. Out of Scope (v1)
+## 16. Watermark System
+
+The watermark feature embeds invisible perturbations into the sprite sheet PNG during assembly (`commands/assemble.rs`). Its purpose is to protect the image identity so that it survives automated processing pipelines. All watermark logic runs **after** all frames are blitted onto the 1024×1024 canvas, before PNG encoding.
+
+### Noise Algorithms
+
+Four independent types can be mixed at any intensity (0–100). They are applied sequentially per-pixel:
+
+| Type | State field | Rust field | Description |
+|---|---|---|---|
+| FGSM | `noiseFgsm` | `noise_fgsm` | Gradient-based edge perturbation. Effective on flat 2D art. |
+| High Freq | `noiseHighFreq` | `noise_high_freq` | Sinusoidal checkerboard pattern. Resists JPEG/WebP compression. |
+| Sparse | `noiseSparse` | `noise_sparse` | Salt-and-pepper single-pixel shifts. Up to 10% of pixels affected. |
+| Luma Wave | `noiseLuma` | `noise_luma` | Medium-frequency brightness wave (`sin * cos` interference). Survives downscaling because it operates at multiple pixels wide. Best for 3D renders with smooth gradients. |
+
+All algorithms:
+- Skip fully-transparent pixels (`alpha == 0`) to preserve the sprite sheet's transparency mask.
+- Clamp final channel values to `[0, 255]` after summing all perturbations.
+- Are implemented with no external crate — pure `std` math only.
+
+### Amplitude Scaling
+
+Each 0–100 UI value is mapped to an internal amplitude in `assemble.rs`:
+
+```rust
+let fgsm_epsilon  = (noise_fgsm  as f32 / 100.0) * 50.0;  // max ±50 per channel
+let high_freq_amp = (noise_high_freq as f32 / 100.0) * 40.0; // max ±40 per channel
+let sparse_prob   = (noise_sparse as f32 / 100.0) * 0.10;   // up to 10% of pixels, ±100 shift
+let luma_amp      = (noise_luma   as f32 / 100.0) * 45.0;   // max ±45 per channel (wave)
+```
+
+### Preset System (`OptionsView.ts`)
+
+The Preset dropdown in `OptionsView` applies fixed combinations and updates all four sliders at once. Manually moving any slider switches the dropdown to `Custom`.
+
+| Preset value | noiseFgsm | noiseHighFreq | noiseSparse | noiseLuma |
+|---|---|---|---|---|
+| `default` | 0 | 0 | 0 | 0 |
+| `soft` | 0 | 40 | 0 | 10 |
+| `strong` | 0 | 50 | 0 | 25 |
+| `custom` | user-defined | — | — | — |
+
+> **"Soft Watermark"** is recommended for 2D pixel art and flat GIFs.  
+> **"Strong Watermark"** is recommended for 3D renders and photorealistic animations where compression is heavier.
+
+### UI Terminology
+
+The feature is labelled **"Watermark"** in all user-facing text. Internal code identifiers (`noiseFgsm`, `noise_luma`, etc.) still use the original naming convention — do **not** rename them in code.
+
+---
+
+## 17. Out of Scope (v1)
 
 Do **not** implement these — they are explicitly excluded:
 
@@ -575,14 +655,12 @@ Do **not** implement these — they are explicitly excluded:
 - Batch processing (one file at a time)
 - Cloud upload / VRChat API integration
 - Audio extraction
-- Custom grid sizes (always 8×8)
-- Frame deduplication
 - Auto-update mechanism
 - Light mode
 
 ---
 
-## 17. Testing & Verification
+## 18. Testing & Verification
 
 There is no automated test suite in v1. Manual verification steps:
 
@@ -596,7 +674,7 @@ When modifying IPC:
 
 ---
 
-## 18. Code Style Conventions
+## 19. Code Style Conventions
 
 All TypeScript source files follow the structural pattern established by `authors.ts`:
 
@@ -648,4 +726,4 @@ If logic is needed in more than one view, it belongs in `state.ts` (state helper
 
 ---
 
-*Last updated: 2026-05-13 — updated for TypeScript refactor (enums, constants, code-style conventions).*
+*Last updated: 2026-05-15 — updated for multi-layered watermarking system.*
