@@ -10,7 +10,7 @@
 // =========================================================================================================
 
 import type { View }                           from './View';
-import { state, defaultFrameCount, MAX_FRAMES } from '../state';
+import { state, defaultFrameCount, DEFAULT_FPS } from '../state';
 import { router }                              from '../router';
 import { analyzeMedia, openFileDialog }        from '../ipc';
 import { html }                                from '../ui/html';
@@ -64,7 +64,7 @@ export class DropView implements View {
             <i class="drop-zone-icon" aria-hidden="true">&#x25A4;</i>
             <span class="drop-zone-label">Drop a GIF or video file here</span>
             <span class="drop-zone-ext">${ACCEPTED_EXTENSIONS.map(e => `.${e}`).join(' &nbsp;·&nbsp; ')}</span>
-            <button class="drop-zone-pick" id="pick-btn" type="button">or click to browse</button>
+            <span class="drop-zone-pick">or click to browse</span>
           </div>
         </div>
         <div id="drop-error" style="display:none; padding: 0 16px 16px;">
@@ -76,7 +76,6 @@ export class DropView implements View {
     container.appendChild(root);
 
     const zone     = root.querySelector<HTMLElement>('#drop-zone')!;
-    const pickBtn  = root.querySelector<HTMLButtonElement>('#pick-btn')!;
     const errorBox = root.querySelector<HTMLElement>('#drop-error')!;
     const errorMsg = root.querySelector<HTMLElement>('#drop-error-msg')!;
 
@@ -114,7 +113,7 @@ export class DropView implements View {
         state.mediaInfo  = info;
         state.outputName = getStem(path);
         state.frameCount = defaultFrameCount(info.total_frames);
-        state.fps        = Math.round(info.fps) || MAX_FRAMES;
+        state.fps        = Math.round(info.fps) || DEFAULT_FPS;
 
         const { AnalysisView } = await import('./AnalysisView');
         router.navigate(new AnalysisView(), 1);
@@ -177,7 +176,15 @@ export class DropView implements View {
       }
     };
 
-    pickBtn.addEventListener('click', onPickClick);
+    zone.addEventListener('click', onPickClick);
+
+    const onZoneKeyDown = (e: KeyboardEvent): void => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        onPickClick(e);
+      }
+    };
+    zone.addEventListener('keydown', onZoneKeyDown);
 
     // =========================================================================
     // Cleanup registration
@@ -187,7 +194,8 @@ export class DropView implements View {
       () => zone.removeEventListener('dragover',  onDragover),
       () => zone.removeEventListener('dragleave', onDragleave),
       () => zone.removeEventListener('drop',      onDrop),
-      () => pickBtn.removeEventListener('click',  onPickClick),
+      () => zone.removeEventListener('click',     onPickClick),
+      () => zone.removeEventListener('keydown',   onZoneKeyDown),
     );
   }
 

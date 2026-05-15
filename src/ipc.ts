@@ -67,6 +67,10 @@ export interface ExtractOptions {
   reduction_mode?: ReductionMode;
   /** Source duration in seconds — required for interpolate FPS math. */
   duration_secs?:  number;
+  /** Whether to remove duplicate frames before other filters. */
+  remove_duplicates?: boolean;
+  /** Sprite cell resolution */
+  cell_size:       number;
 }
 
 /** Result returned by the `extract_frames` Rust command. */
@@ -94,6 +98,16 @@ export interface AssembleOptions {
   frame_count:  number;
   /** Full OS path for the output PNG file. */
   output_path:  string;
+  /** Sprite cell resolution */
+  cell_size:    number;
+  /** FGSM spatial noise level (0-100) */
+  noise_fgsm:      number;
+  /** High frequency structured noise level (0-100) */
+  noise_high_freq: number;
+  /** Sparse noise level (0-100) */
+  noise_sparse:    number;
+  /** Medium frequency Luma waves (0-100) */
+  noise_luma:      number;
 }
 
 /** Result returned by the `assemble_sheet` Rust command. */

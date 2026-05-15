@@ -12,7 +12,7 @@
 // =========================================================================================================
 
 import type { View }                          from './View';
-import { state, MAX_FRAMES, ReductionMode }   from '../state';
+import { state, getMaxFrames, ReductionMode } from '../state';
 import { router }                             from '../router';
 import { html }                               from '../ui/html';
 
@@ -44,7 +44,7 @@ export class ReductionView implements View {
         <div class="view-body" style="display:flex; flex-direction:column; gap:16px;">
           <p class="text-secondary">
             Source has <strong style="color:var(--text-primary)">${totalFrames}</strong> frames.
-            Maximum is <strong style="color:var(--text-primary)">${MAX_FRAMES}</strong>.
+            Maximum is <strong style="color:var(--text-primary)">${getMaxFrames()}</strong>.
           </p>
 
           <div>
@@ -71,7 +71,7 @@ export class ReductionView implements View {
           <div id="interp-panel" style="display:none;">
             <p class="text-secondary">
               Blend <strong style="color:var(--text-primary)">${totalFrames}</strong>
-              → <strong style="color:var(--text-primary)">${MAX_FRAMES}</strong> frames using motion interpolation.
+              → <strong style="color:var(--text-primary)">${getMaxFrames()}</strong> frames using motion interpolation.
             </p>
             <p class="text-secondary mt-8">Slower (~10–30 s). Covers the full animation duration.</p>
           </div>

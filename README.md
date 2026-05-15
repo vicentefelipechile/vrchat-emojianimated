@@ -1,6 +1,6 @@
 # VRChat Emoji Animator
 
-**vrchat-emojianimate** is a lightweight, portable desktop tool that converts GIF and video files into **1024×1024 VRChat-compatible sprite sheets** (PNG format, 8×8 grid, up to 64 frames, 128×128 pixels per cell).
+**vrchat-emojianimate** is a lightweight, portable desktop tool that converts GIF and video files into **1024×1024 VRChat-compatible sprite sheets** (PNG format, up to 64 frames for 128×128 cells or 16 frames for 256×256 cells).
 
 This tool is specifically designed for VRChat avatar and world creators who need a fast, zero-configuration way to turn media into sprite animations.
 
@@ -9,8 +9,9 @@ This tool is specifically designed for VRChat avatar and world creators who need
 - **No Installation Required:** Distributed as a single, lightweight portable `.exe`.
 - **Dynamic Dependencies:** To keep the application size under 10MB, the required FFmpeg binaries are automatically downloaded in the background on the first launch.
 - **Broad Format Support:** Accepts `.gif`, `.mp4`, `.webm`, `.mov`, `.avi`, and `.mkv`.
-- **Smart Cropping:** Multiple fit modes including Stretch, Crop, and a custom Focus Mode (crosshair selector) to ensure your animation fits the 128x128 cell perfectly.
-- **Frame Reduction:** For media exceeding the 64-frame limit, the app can intelligently trim or use motion interpolation (`minterpolate`) to compress the video into exactly 64 fluid frames.
+- **Dynamic Resolution:** Choose between 128×128 cells (max 64 frames) or higher quality 256×256 cells (max 16 frames) depending on your needs.
+- **Smart Cropping:** Multiple fit modes including Stretch, Crop, and a custom Focus Mode (crosshair selector) to ensure your animation fits the cell perfectly.
+- **Frame Reduction:** For media exceeding the frame limit, the app can intelligently trim or use motion interpolation (`minterpolate`) to compress the video into exactly the right number of fluid frames.
 - **VRChat Ready:** Outputs a raw, metadata-free PNG sheet formatted as `<Name>_<N>frames_<FPS>fps.png`.
 
 ## Tech Stack

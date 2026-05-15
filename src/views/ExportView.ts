@@ -17,20 +17,18 @@
 // Imports
 // =========================================================================================================
 
-import type { View }                                          from './View';
-import { state, FitMode, buildOutputFilename }               from '../state';
-import { router }                                            from '../router';
-import { html }                                              from '../ui/html';
-import { ProgressBar }                                       from '../ui/progress';
 import { extractFrames, assembleSheet, cleanupTemp, saveFileDialog } from '../ipc';
+import type { View } from './View';
+import { state, FitMode, buildOutputFilename } from '../state';
+import { router } from '../router';
+import { html } from '../ui/html';
+import { ProgressBar } from '../ui/progress';
 
 // =========================================================================================================
 // Constants
 // =========================================================================================================
 
-/** Sprite sheet grid size — 8 columns and 8 rows, each cell 128×128 px. */
-const SHEET_COLS       = 8;
-const CELL_SIZE        = 128;
+/** Sprite sheet grid size — varies based on resolution. */
 
 /** Progress percentages reported at each pipeline milestone. */
 const PROGRESS = {
@@ -137,12 +135,15 @@ export class ExportView implements View {
         // Phase 1: Extract frames via FFmpeg
         progress.setProgress(PROGRESS.STARTED, 'Extracting frames…');
 
+        const CELL_SIZE = state.resolution;
+        const SHEET_COLS = 1024 / CELL_SIZE;
+
         const info   = state.mediaInfo!;
         const frameW = info.width  ?? CELL_SIZE * 2;
         const frameH = info.height ?? CELL_SIZE * 2;
 
         // For focus mode, pre-compute clamped crop offsets (blueprint §IPC):
-        //   crop_x = clamp(anchor_x - 64, 0, frame_w - 128)
+        //   crop_x = clamp(anchor_x - (CELL_SIZE/2), 0, frame_w - CELL_SIZE)
         let cropX: number | undefined;
         let cropY: number | undefined;
         if (state.fitMode === FitMode.FOCUS) {
@@ -163,15 +164,24 @@ export class ExportView implements View {
           frame_height:   frameH,
           reduction_mode: state.reductionMode ?? undefined,
           duration_secs:  info.duration_secs ?? 0,
+          remove_duplicates: state.removeDuplicateFrames,
+          cell_size:      CELL_SIZE,
         });
 
         if (this.aborted) return;
         state.tempDir = extractResult.temp_dir;
 
+        // Update frame count if mpdecimate removed frames, so filename is accurate
+        if (extractResult.actual_count !== state.frameCount) {
+          state.frameCount = extractResult.actual_count;
+        }
+
+        const suggestedFilename = buildOutputFilename();
+
         // Phase 2: Ask where to save
         progress.setProgress(PROGRESS.EXTRACTED, `Extracted ${extractResult.actual_count} frames. Choose save location…`);
 
-        const savePath = await saveFileDialog(filename);
+        const savePath = await saveFileDialog(suggestedFilename);
         if (!savePath || this.aborted) {
           progress.reset();
           progressSection.style.display = 'none';
@@ -187,6 +197,11 @@ export class ExportView implements View {
           temp_dir:    extractResult.temp_dir,
           frame_count: extractResult.actual_count,
           output_path: savePath,
+          cell_size:   CELL_SIZE,
+          noise_fgsm:      state.noiseFgsm,
+          noise_high_freq: state.noiseHighFreq,
+          noise_sparse:    state.noiseSparse,
+          noise_luma:      state.noiseLuma,
         });
 
         progress.setProgress(PROGRESS.CLEANUP, 'Cleaning up temporary files…');

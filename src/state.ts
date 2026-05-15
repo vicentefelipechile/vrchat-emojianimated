@@ -16,6 +16,12 @@ export enum MediaFormat {
   VIDEO = 'video',
 }
 
+/** Sprite cell resolution */
+export enum Resolution {
+  RES_128 = 128,
+  RES_256 = 256,
+}
+
 /** How to reduce a source with more than MAX_FRAMES frames down to the limit. */
 export enum ReductionMode {
   TRIM_START  = 'trim_start',
@@ -34,10 +40,13 @@ export enum FitMode {
 // Constants
 // =========================================================================================================
 
-/** Maximum number of frames a VRChat sprite sheet may contain. */
-export const MAX_FRAMES = 64;
+/** Maximum number of frames a VRChat sprite sheet may contain given its resolution. */
+export function getMaxFrames(res?: Resolution): number {
+  const r = res ?? state.resolution;
+  return r === Resolution.RES_256 ? 16 : 64;
+}
 
-/** Default frame count when the source frame count is unknown or exceeds MAX_FRAMES. */
+/** Default frame count when the source frame count is unknown or exceeds max frames. */
 export const DEFAULT_FRAME_COUNT = 16;
 
 /** Default playback FPS written into the output filename. */
@@ -74,7 +83,9 @@ export interface AppState {
   anchorX:        number | null;
   /** Source-space Y pixel for focus-mode crop anchor. null until user clicks preview. */
   anchorY:        number | null;
-  /** Number of frames to place in the sprite sheet (1–MAX_FRAMES). */
+  /** Sprite cell resolution. Defaults to 128x128. */
+  resolution:     Resolution;
+  /** Number of frames to place in the sprite sheet (1–getMaxFrames()). */
   frameCount:     number;
   /** Playback FPS stored only in the output filename; not embedded in PNG. */
   fps:            number;
@@ -84,6 +95,16 @@ export interface AppState {
   tempDir:        string | null;
   /** Base64-encoded first-frame PNG cached from `extract_preview`. */
   previewBase64:  string | null;
+  /** Whether to drop duplicate frames (typically for GIFs). */
+  removeDuplicateFrames: boolean;
+  /** FGSM / Spatial pseudo-gradient noise level (0-100) */
+  noiseFgsm:      number;
+  /** High frequency structured noise level (0-100) */
+  noiseHighFreq:  number;
+  /** Sparse noise (salt & pepper) level (0-100) */
+  noiseSparse:    number;
+  /** Medium frequency Luma waves (0-100) */
+  noiseLuma:      number;
 }
 
 // =========================================================================================================
@@ -97,11 +118,17 @@ export const state: AppState = {
   fitMode:       DEFAULT_FIT_MODE,
   anchorX:       null,
   anchorY:       null,
+  resolution:    Resolution.RES_128,
   frameCount:    DEFAULT_FRAME_COUNT,
   fps:           DEFAULT_FPS,
   outputName:    '',
   tempDir:       null,
   previewBase64: null,
+  removeDuplicateFrames: false,
+  noiseFgsm:     0,
+  noiseHighFreq: 0,
+  noiseSparse:   0,
+  noiseLuma:     0,
 };
 
 // =========================================================================================================
@@ -116,11 +143,17 @@ export function resetState(): void {
   state.fitMode       = DEFAULT_FIT_MODE;
   state.anchorX       = null;
   state.anchorY       = null;
+  state.resolution    = Resolution.RES_128;
   state.frameCount    = DEFAULT_FRAME_COUNT;
   state.fps           = DEFAULT_FPS;
   state.outputName    = '';
   state.tempDir       = null;
   state.previewBase64 = null;
+  state.removeDuplicateFrames = false;
+  state.noiseFgsm     = 0;
+  state.noiseHighFreq = 0;
+  state.noiseSparse   = 0;
+  state.noiseLuma     = 0;
 }
 
 /**
@@ -134,11 +167,11 @@ export function buildOutputFilename(): string {
 
 /**
  * Determine the sensible default frame count for a freshly analyzed file.
- * - Known ≤ MAX_FRAMES → use exact count.
+ * - Known ≤ max frames → use exact count.
  * - Unknown (≤ 0) → fall back to DEFAULT_FRAME_COUNT.
- * - Exceeds MAX_FRAMES → leave at DEFAULT_FRAME_COUNT until ReductionView.
+ * - Exceeds max frames → leave at DEFAULT_FRAME_COUNT until ReductionView.
  */
 export function defaultFrameCount(totalFrames: number): number {
-  if (totalFrames > 0 && totalFrames <= MAX_FRAMES) return totalFrames;
+  if (totalFrames > 0 && totalFrames <= getMaxFrames()) return totalFrames;
   return DEFAULT_FRAME_COUNT;
 }

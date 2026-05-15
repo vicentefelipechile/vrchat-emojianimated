@@ -1,9 +1,9 @@
 // =========================================================================================================
 // FIT VIEW — Step 3
 // =========================================================================================================
-// Lets the user choose how source frames are scaled/cropped to fill the 128×128 sprite cell:
+// Lets the user choose how source frames are scaled/cropped to fill the sprite cell:
 //   Stretch → independent axis scaling (fast; distorts non-square content).
-//   Crop    → scale so the short axis fills 128 px, center-crop the rest.
+//   Crop    → scale so the short axis fills the cell, center-crop the rest.
 //   Focus   → click the preview image to set a custom crop anchor point.
 //
 // In Focus mode the view fetches a first-frame preview via `extract_preview` (cached in state).
@@ -18,17 +18,13 @@ import { state, FitMode } from '../state';
 import { router }         from '../router';
 import { html }           from '../ui/html';
 import { extractPreview } from '../ipc';
+import { getMaxFrames }   from '../state';
 
 // =========================================================================================================
 // Constants
 // =========================================================================================================
 
-/** Human-readable description shown below the fit-mode toggle for each mode. */
-const FIT_DESCRIPTIONS: Record<FitMode, string> = {
-  [FitMode.STRETCH]: 'Scale width and height independently to 128×128. Fastest; distorts non-square content.',
-  [FitMode.CROP]:    'Scale so the shorter axis fills 128 px, then crop the center 128×128 region.',
-  [FitMode.FOCUS]:   'Click on the preview to set the crop anchor. The 128×128 crop will be centered on that point.',
-};
+// Descriptions moved into mount to access state.resolution
 
 /** Fallback preview-wrap width (px) when getBoundingClientRect returns 0 on first render. */
 const PREVIEW_WRAP_FALLBACK_WIDTH = 528;
@@ -41,6 +37,13 @@ export class FitView implements View {
   private listeners: Array<() => void> = [];
 
   mount(container: HTMLElement): void {
+    const res = state.resolution;
+    const FIT_DESCRIPTIONS: Record<FitMode, string> = {
+      [FitMode.STRETCH]: `Scale width and height independently to ${res}×${res}. Fastest; distorts non-square content.`,
+      [FitMode.CROP]:    `Scale so the shorter axis fills ${res} px, then crop the center ${res}×${res} region.`,
+      [FitMode.FOCUS]:   `Click on the preview to set the crop anchor. The ${res}×${res} crop will be centered on that point.`,
+    };
+
     const root = html`
       <div>
         <div class="view-header">
@@ -48,7 +51,7 @@ export class FitView implements View {
         </div>
         <div class="view-body" style="display:flex; flex-direction:column; gap:16px;">
           <div>
-            <div class="field-label" style="margin-bottom:8px;">How to fill 128×128 cells</div>
+            <div class="field-label" style="margin-bottom:8px;">How to fill ${res}×${res} cells</div>
             <div class="toggle-group" id="fit-group">
               <button type="button" id="btn-stretch" aria-pressed="false">Stretch</button>
               <button type="button" id="btn-crop"    aria-pressed="false">Crop</button>
@@ -215,7 +218,7 @@ export class FitView implements View {
     // =========================================================================
 
     const onBack = async (): Promise<void> => {
-      if (state.mediaInfo!.total_frames > 64) {
+      if (state.mediaInfo!.total_frames > getMaxFrames()) {
         const { ReductionView } = await import('./ReductionView');
         router.navigate(new ReductionView(), 2);
       } else {
